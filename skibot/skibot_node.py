@@ -51,7 +51,7 @@ from skibot_interfaces.srv import Teleport
 from pygame.locals import *
 import pygame.transform
 import pygame.image
-
+import sys
 from geometry_msgs.msg import Wrench
 from geometry_msgs.msg import Point
 
@@ -91,7 +91,6 @@ class Skibot(object):
         self._screen = screen
         self.set_pose(pos, theta)
         self.set_vel_zero()
-        print(os.path.dirname(os.path.realpath(__file__)))
         self.image = pygame.image.load('indigo.png')
         height_px = 48
         width_px = 48
@@ -193,11 +192,11 @@ class Skibot(object):
 class SkibotNode(Node):
     """ ROS Skibot node. """
 
-    def __init__(self):
+    def __init__(self, args):
 
         # Initializing the node and setting up subscriptions
         super().__init__('skibot_node')
-
+        self.get_logger().info(args)
         self.subscription = self.create_subscription(
             Wrench, 'thrust', self.wrench_callback, 10
         )
@@ -334,7 +333,7 @@ class SkibotNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SkibotNode()
+    node = SkibotNode(args)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.is_shutdown()
