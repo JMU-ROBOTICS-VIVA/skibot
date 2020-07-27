@@ -40,6 +40,7 @@ import numpy as np
 # Import the new ros2 libraries
 import rclpy
 from rclpy.node import Node
+from ament_index_python.packages import get_package_share_directory
 
 # in ros2 custom interfaces are only supported by cpp so have to make a separate
 # ros2 package for only the interface in cpp using ament_cmake
@@ -91,7 +92,10 @@ class Skibot(object):
         self._screen = screen
         self.set_pose(pos, theta)
         self.set_vel_zero()
-        self.image = pygame.image.load('indigo.png')
+        this_prefix = get_package_share_directory('skibot')
+        img_path = os.path.join(this_prefix, 'images', 'indigo.png')
+        print(img_path)
+        self.image = pygame.image.load(img_path)
         height_px = 48
         width_px = 48
 
@@ -192,11 +196,10 @@ class Skibot(object):
 class SkibotNode(Node):
     """ ROS Skibot node. """
 
-    def __init__(self, args):
+    def __init__(self):
 
         # Initializing the node and setting up subscriptions
         super().__init__('skibot_node')
-        self.get_logger().info(args)
         self.subscription = self.create_subscription(
             Wrench, 'thrust', self.wrench_callback, 10
         )
@@ -230,8 +233,10 @@ class SkibotNode(Node):
         # 'arrow.png')
 
         # temporary solution... couldnt find any other way to load images
+        this_prefix = get_package_share_directory('skibot')
+        img_path = os.path.join(this_prefix, 'images', 'arrow.png')
         self.arrow_img = pygame.image.load(
-            'arrow_file.png')
+            img_path)
         self.arrow_img = pygame.transform.smoothscale(self.arrow_img,
                                                       (38, 8))
         square = pygame.Surface((38, 38), flags=SRCALPHA)
@@ -246,7 +251,6 @@ class SkibotNode(Node):
         self.timer = self.create_timer(1 / self.refresh_rate, self.run)
 
     def wrench_callback(self, wrench):
-        print(wrench)
         self.thrust_start = time.time()
         self.cur_wrench = wrench
 
@@ -333,7 +337,7 @@ class SkibotNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SkibotNode(args)
+    node = SkibotNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.is_shutdown()
