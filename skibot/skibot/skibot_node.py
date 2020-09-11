@@ -47,7 +47,6 @@ from skibot_interfaces.srv import Teleport
 from pygame.locals import *
 import pygame.transform
 import pygame.image
-import sys
 from geometry_msgs.msg import Wrench
 from geometry_msgs.msg import Point
 
@@ -117,7 +116,7 @@ class Skibot:
         # expression-for-angular-friction
 
         # Angular Component
-        # First, calculate angular velocity in the absense of friction
+        # First, calculate angular velocity in the absence of friction
 
         torque = np.clip(wrench.torque.z, -self.MAX_TORQUE, self.MAX_TORQUE)
         angular_acc = torque / self.MOMENT_OF_INERTIA
@@ -176,20 +175,21 @@ class Skibot:
             self.pos[1] = 0
             self.vel[1] = -self.vel[1]
 
-
     def update_display(self):
         """Redraw the robot at the current position.
 
         """
-       # Draw the robot.
+        # Draw the robot.
         surf = pygame.transform.rotozoom(self.image,
                                          np.rad2deg(self.theta), 1.0)
         pixel_x = (self.pos[0] * PIXELS_PER_METER - surf.get_rect().width
                    * .5)
-        pixel_y =  (SCREEN_HEIGHT_PX -
-                    (self.pos[1] * PIXELS_PER_METER + surf.get_rect().height * .5))
+        pixel_y = (SCREEN_HEIGHT_PX -
+                   (self.pos[
+                        1] * PIXELS_PER_METER + surf.get_rect().height * .5))
         self._screen.blit(surf, (pixel_x, pixel_y))
-        
+
+
 class SkibotNode(Node):
     """ ROS Skibot node. """
 
@@ -198,22 +198,25 @@ class SkibotNode(Node):
         # Initializing the node and setting up subscriptions
         super().__init__('skibot_node')
         self.node_done = False
+
+        # This allows the callbacks to happen simultaneously in separate
+        # threads.  Not particularly important.
         group = rclpy.callback_groups.ReentrantCallbackGroup()
-        self.create_subscription(
-            Wrench, 'thrust', self.wrench_callback, 10, callback_group=group
-        )
-        self.create_subscription(
-            Pose, 'target_pose', self.target_pose_callback, 10, callback_group=group
-        )
-        self.create_subscription(
-            Point, 'target_point', self.target_point_callback, 10, callback_group=group
-        )
+        self.create_subscription(Wrench, 'thrust', self.wrench_callback, 10,
+                                 callback_group=group)
+        self.create_subscription(Pose, 'target_pose',
+                                 self.target_pose_callback, 10,
+                                 callback_group=group)
+        self.create_subscription(Point, 'target_point',
+                                 self.target_point_callback, 10,
+                                 callback_group=group)
         self.loc_pub = self.create_publisher(Pose, 'pose', 10)
 
         self.target_pose = None
         self.target_point = None
 
         self.pub_rate = 35.0
+
         # creating the teleport service
         self.srv = self.create_service(
             Teleport, 'teleport', self.handle_teleport_service)
@@ -241,10 +244,10 @@ class SkibotNode(Node):
         self.thrust_start = 0
         self.last_pub = 0.0
         self.last_physics_update = time.time()
-        
+
         # These will be single threaded and alternate
-        self.create_timer(1/self.refresh_rate, self.update_physics)
-        self.create_timer(1/self.refresh_rate, self.update_display)
+        self.create_timer(1 / self.refresh_rate, self.update_physics)
+        self.create_timer(1 / self.refresh_rate, self.update_display)
 
     def wrench_callback(self, wrench):
         self.thrust_start = time.time()
@@ -263,7 +266,8 @@ class SkibotNode(Node):
 
         if (teleport_srv.x < 0 or teleport_srv.x > SCREEN_WIDTH_M or
                 teleport_srv.y < 0 or teleport_srv.y > SCREEN_HEIGHT_M):
-            self.get_logger().info("Invalid teleport request: {}".format(teleport_srv))
+            self.get_logger().info(
+                "Invalid teleport request: {}".format(teleport_srv))
             response.success = False
             return response
         while self.rocket is None:
@@ -271,7 +275,7 @@ class SkibotNode(Node):
         self.rocket.set_pose((teleport_srv.x, teleport_srv.y),
                              teleport_srv.theta)
         self.rocket.set_vel_zero()
-        self.wrench = Wrench()
+        self.cur_wrench = Wrench()
         response.success = True
 
         return response
@@ -279,9 +283,8 @@ class SkibotNode(Node):
     def update_physics(self):
         cur_time = time.time()
         self.rocket.update_physics(self.cur_wrench,
-                                   cur_time - self.last_physics_update) 
+                                   cur_time - self.last_physics_update)
         self.last_physics_update = cur_time
-
 
     def update_display(self):
 
@@ -299,7 +302,6 @@ class SkibotNode(Node):
             # Stop obeying last wrench after .6 seconds.
             self.cur_wrench = Wrench()
 
-        
         if self.target_pose is not None:
             pixel_pos = pos_to_pixels((self.target_pose.x,
                                        self.target_pose.y))
@@ -317,7 +319,7 @@ class SkibotNode(Node):
 
         pygame.display.flip()
 
-        if (time.time() > (self.last_pub + 1.0 / self.pub_rate)):
+        if time.time() > (self.last_pub + 1.0 / self.pub_rate):
             angle = (self.rocket.theta + np.pi) % (2 * np.pi) - np.pi
             pose = Pose()
             pose.x = self.rocket.pos[0]
@@ -329,7 +331,7 @@ class SkibotNode(Node):
             # publish the message
             self.loc_pub.publish(pose)
             self.last_pub = time.time()
-            
+
     def done(self):
 
         return self.node_done
