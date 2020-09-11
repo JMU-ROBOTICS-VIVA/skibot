@@ -37,16 +37,11 @@ import pygame
 import os
 import numpy as np
 
-# Import the new ros2 libraries
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
 
-# in ros2 custom interfaces are only supported by cpp so have to make a separate
-# ros2 package for only the interface in cpp using ament_cmake
-# https://index.ros.org/doc/ros2/Tutorials/Custom-ROS2-Interfaces/
 from skibot_interfaces.msg import Pose
-# there is no need for teleportResponse, instead you can return response.success from the callback
 from skibot_interfaces.srv import Teleport
 
 from pygame.locals import *
@@ -55,6 +50,8 @@ import pygame.image
 import sys
 from geometry_msgs.msg import Wrench
 from geometry_msgs.msg import Point
+
+from rclpy.executors import MultiThreadedExecutor
 
 # Physical constants.
 GRAVITY = 9.8  # m/s^2
@@ -73,7 +70,7 @@ def pos_to_pixels(pos):
             SCREEN_HEIGHT_PX - int(pos[1] * PIXELS_PER_METER))
 
 
-class Skibot(object):
+class Skibot:
     """ Sliding robot. """
 
     # Robot attributes...
@@ -94,7 +91,6 @@ class Skibot(object):
         self.set_vel_zero()
         this_prefix = get_package_share_directory('skibot')
         img_path = os.path.join(this_prefix, 'images', 'indigo.png')
-        print(img_path)
         self.image = pygame.image.load(img_path)
         height_px = 48
         width_px = 48
@@ -113,9 +109,8 @@ class Skibot(object):
         self.vel = np.array([0, 0], dtype='float64')
         self.vel_rot = 0.0
 
-    def update(self, wrench, dt):
-        """Update the position and velocity based on the thrust.  Redraw the
-        robot at the new position.
+    def update_physics(self, wrench, dt):
+        """Update the position and velocity based on the thrust. 
 
         """
         # https://physics.stackexchange.com/questions/349451/
@@ -135,7 +130,7 @@ class Skibot(object):
 
         # Friction can't turn something backwards...
         if np.sign(angular_vel_fric) != np.sign(no_fric_vel):
-            angular_vel_fric = 0
+            angular_vel_fric = 0.0
 
         self.vel_rot = angular_vel_fric
 
@@ -145,7 +140,7 @@ class Skibot(object):
         force = np.clip(wrench.force.x, -self.MAX_FORCE, self.MAX_FORCE)
         linear_acc = (force / self.MASS)
         x_acc = np.sin(self.theta + np.pi / 2) * linear_acc
-        y_acc = np.cos(self.theta + np.pi / 2) * linear_acc
+        y_acc = -np.cos(self.theta + np.pi / 2) * linear_acc
         acc = np.array([x_acc, y_acc], dtype='float32')
         no_fric_vel = self.vel + acc * dt
 
@@ -181,18 +176,20 @@ class Skibot(object):
             self.pos[1] = 0
             self.vel[1] = -self.vel[1]
 
-        # Draw the robot.
+
+    def update_display(self):
+        """Redraw the robot at the current position.
+
+        """
+       # Draw the robot.
         surf = pygame.transform.rotozoom(self.image,
                                          np.rad2deg(self.theta), 1.0)
         pixel_x = (self.pos[0] * PIXELS_PER_METER - surf.get_rect().width
                    * .5)
-        pixel_y = (self.pos[1] * PIXELS_PER_METER - surf.get_rect().height
-                   * .5)
+        pixel_y =  (SCREEN_HEIGHT_PX -
+                    (self.pos[1] * PIXELS_PER_METER + surf.get_rect().height * .5))
         self._screen.blit(surf, (pixel_x, pixel_y))
-
-# skibotnode inherits from Node class we imported earlier
-
-
+        
 class SkibotNode(Node):
     """ ROS Skibot node. """
 
@@ -200,14 +197,16 @@ class SkibotNode(Node):
 
         # Initializing the node and setting up subscriptions
         super().__init__('skibot_node')
-        self.subscription = self.create_subscription(
-            Wrench, 'thrust', self.wrench_callback, 10
+        self.node_done = False
+        group = rclpy.callback_groups.ReentrantCallbackGroup()
+        self.create_subscription(
+            Wrench, 'thrust', self.wrench_callback, 10, callback_group=group
         )
-        self.subscription = self.create_subscription(
-            Pose, 'target_pose', self.target_pose_callback, 10
+        self.create_subscription(
+            Pose, 'target_pose', self.target_pose_callback, 10, callback_group=group
         )
-        self.subscription = self.create_subscription(
-            Point, 'target_point', self.target_point_callback, 10
+        self.create_subscription(
+            Point, 'target_point', self.target_point_callback, 10, callback_group=group
         )
         self.loc_pub = self.create_publisher(Pose, 'pose', 10)
 
@@ -228,17 +227,10 @@ class SkibotNode(Node):
         self.rocket = Skibot(self.screen, (SCREEN_WIDTH_M / 2,
                                            SCREEN_HEIGHT_M / 2), 0.0)
 
-        # load and prep arrow image.
-        # arrow_file = roslib.packages.resource_file('skibot', 'images',
-        # 'arrow.png')
-
-        # temporary solution... couldnt find any other way to load images
         this_prefix = get_package_share_directory('skibot')
         img_path = os.path.join(this_prefix, 'images', 'arrow.png')
-        self.arrow_img = pygame.image.load(
-            img_path)
-        self.arrow_img = pygame.transform.smoothscale(self.arrow_img,
-                                                      (38, 8))
+        self.arrow_img = pygame.image.load(img_path)
+        self.arrow_img = pygame.transform.smoothscale(self.arrow_img, (38, 8))
         square = pygame.Surface((38, 38), flags=SRCALPHA)
         square.fill((255, 255, 255, 0))
         square.blit(self.arrow_img, (0, 15))
@@ -247,8 +239,12 @@ class SkibotNode(Node):
 
         self.cur_wrench = Wrench()
         self.thrust_start = 0
-        # created a timer instead of having a while loop in run, it will invoke the run every 0.1 seconds
-        self.timer = self.create_timer(1 / self.refresh_rate, self.run)
+        self.last_pub = 0.0
+        self.last_physics_update = time.time()
+        
+        # These will be single threaded and alternate
+        self.create_timer(1/self.refresh_rate, self.update_physics)
+        self.create_timer(1/self.refresh_rate, self.update_display)
 
     def wrench_callback(self, wrench):
         self.thrust_start = time.time()
@@ -262,7 +258,6 @@ class SkibotNode(Node):
         self.target_point = point_msg
         self.target_pose = None
 
-    # service callback accepts an additional response parameter which is now returned instead
     def handle_teleport_service(self, teleport_srv, response):
         """ Move the skibot to the goal location. """
 
@@ -281,16 +276,22 @@ class SkibotNode(Node):
 
         return response
 
-    # removed the while loop from here as it was not needed
-    def run(self):
-        last_pub = 0.0
+    def update_physics(self):
+        cur_time = time.time()
+        self.rocket.update_physics(self.cur_wrench,
+                                   cur_time - self.last_physics_update) 
+        self.last_physics_update = cur_time
 
-        # destroy the timer when we get the quit from pygame
+
+    def update_display(self):
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                self.destroy_timer(self.timer)
+                self.node_done = True
 
         self.screen.fill((255, 255, 255))
+
+        self.rocket.update_display()
 
         if ((self.cur_wrench.force.x != 0 or
              self.cur_wrench.torque.z != 0) and
@@ -298,8 +299,7 @@ class SkibotNode(Node):
             # Stop obeying last wrench after .6 seconds.
             self.cur_wrench = Wrench()
 
-        self.rocket.update(self.cur_wrench, 1.0 / self.refresh_rate)
-
+        
         if self.target_pose is not None:
             pixel_pos = pos_to_pixels((self.target_pose.x,
                                        self.target_pose.y))
@@ -317,30 +317,33 @@ class SkibotNode(Node):
 
         pygame.display.flip()
 
-        if (time.time() > (last_pub + 1.0 / self.pub_rate -
-                           1 / self.refresh_rate)):
+        if (time.time() > (self.last_pub + 1.0 / self.pub_rate)):
             angle = (self.rocket.theta + np.pi) % (2 * np.pi) - np.pi
             pose = Pose()
             pose.x = self.rocket.pos[0]
-            pose.y = float(SCREEN_HEIGHT_PX) / \
-                PIXELS_PER_METER - self.rocket.pos[1]
+            pose.y = self.rocket.pos[1]
             pose.theta = angle
             pose.x_velocity = self.rocket.vel[0]
             pose.y_velocity = self.rocket.vel[1]
-            pose.theta_velocity = self.rocket.vel_rot
+            pose.theta_velocity = float(self.rocket.vel_rot)
             # publish the message
             self.loc_pub.publish(pose)
-            last_pub = time.time()
+            self.last_pub = time.time()
+            
+    def done(self):
 
-# Adjusted the init sequence as per other ros2 examples.
+        return self.node_done
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = SkibotNode()
-    rclpy.spin(node)
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
+    executor.spin_until_future_complete(node)
+
     node.destroy_node()
-    rclpy.is_shutdown()
+    rclpy.shutdown()
 
 
 if __name__ == "__main__":
