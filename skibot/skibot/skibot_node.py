@@ -27,7 +27,9 @@ Author: Nathan Sprague
 
 Upgrade to ROS2: Mridul Pareek, 14/JUN/2020
 
+Upgraded to Ros2 foxy: Kevin Molloy, 26/Sept/2021
 """
+
 # Some code taken from :
 # http://www.gpwiki.org/index.php/Python:Pygame_basics
 
@@ -51,6 +53,8 @@ from geometry_msgs.msg import Wrench
 from geometry_msgs.msg import Point
 
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.task import Future
+
 
 # Physical constants.
 GRAVITY = 9.8  # m/s^2
@@ -342,7 +346,10 @@ def main(args=None):
     node = SkibotNode()
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
-    executor.spin_until_future_complete(node)
+    future = Future()
+    future.add_done_callback(lambda fut : print("Future is done"))
+
+    executor.spin_until_future_complete(future)
 
     node.destroy_node()
     rclpy.shutdown()

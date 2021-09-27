@@ -20,9 +20,8 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package="skibot",
-            node_executable="skibot_node",
-            node_name="skibot_node",
-            arguments=['-d', images],
-            name="skibot_node"
+            executable="skibot_node",
+            name="skibot_node",
+            arguments=['-d', images]
         ),
     ])

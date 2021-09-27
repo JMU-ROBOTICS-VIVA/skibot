@@ -1,4 +1,5 @@
 from setuptools import setup
+import glob
 
 package_name = 'skibot'
 
@@ -12,6 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/images/', ['images/arrow.png']),
         ('share/' + package_name + '/images/', ['images/indigo.png']),
+        ('share/'  + package_name + '/launch/', ['launch/skibot_launch.py'])
     ],
     install_requires=['setuptools'],
     zip_safe=True,
