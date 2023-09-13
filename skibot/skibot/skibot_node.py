@@ -52,7 +52,7 @@ import pygame.image
 from geometry_msgs.msg import Wrench
 from geometry_msgs.msg import Point
 
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.task import Future
 
 
@@ -344,12 +344,9 @@ class SkibotNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = SkibotNode()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
-    future = Future()
-    future.add_done_callback(lambda fut : print("Future is done"))
-
-    executor.spin_until_future_complete(future)
+    executor.spin()
 
     node.destroy_node()
     rclpy.shutdown()
